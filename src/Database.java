@@ -61,10 +61,10 @@ public class Database {
             );
             """, listName);
 
-        // 2) Insert listName into the “lists” metadata
+        // 2) Insert listName into the “lists” metadata (if not already present).
         String insertListSql = "INSERT OR IGNORE INTO lists(name) VALUES(?)";
 
-        // Create the coin‐table if not exists:
+        // Create the coin‐table itself if not exists:
         try (Connection conn = DriverManager.getConnection(DB_URL);
              Statement stmt = conn.createStatement()) {
             stmt.execute(createTableSql);
@@ -72,7 +72,7 @@ public class Database {
             e.printStackTrace();
         }
 
-        // Record the new listName into “lists”:
+        // Record the new listName into the metadata table:
         try (Connection conn = DriverManager.getConnection(DB_URL);
              PreparedStatement pstmt = conn.prepareStatement(insertListSql)) {
             pstmt.setString(1, listName);
@@ -86,6 +86,7 @@ public class Database {
     public List<String> getAllListNames() {
         List<String> result = new ArrayList<>();
         String sql = "SELECT name FROM lists";
+
         try (Connection conn = DriverManager.getConnection(DB_URL);
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
@@ -98,7 +99,14 @@ public class Database {
         return result;
     }
 
-    /** Insert a new Coin into the specified list/table. */
+    /**
+     * Insert a new Coin into the specified list/table.
+     *
+     * @param listName      the table to insert into (e.g. "Owned" or "Wishlist" or any custom name)
+     * @param coin          the Coin object
+     * @param obverseBytes  raw PNG bytes for obverse (may be null)
+     * @param inverseBytes  raw PNG bytes for inverse (may be null)
+     */
     public void insertCoin(String listName, Coin coin, byte[] obverseBytes, byte[] inverseBytes) {
         String sql = String.format("""
             INSERT INTO "%s" (
@@ -130,9 +138,16 @@ public class Database {
         }
     }
 
-    /** Retrieve a Coin by its UUID from a specified list/table. */
+    /**
+     * Retrieve a Coin by its UUID from a specified list/table.
+     *
+     * @param listName the table to query
+     * @param id       the UUID of the coin as a string
+     * @return the Coin object if found, otherwise null
+     */
     public Coin getCoinById(String listName, String id) {
         String sql = String.format("SELECT * FROM \"%s\" WHERE id = ?", listName);
+
         try (Connection conn = DriverManager.getConnection(DB_URL);
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
@@ -159,7 +174,12 @@ public class Database {
         return null;
     }
 
-    /** Retrieve all coins in a given list/table. */
+    /**
+     * Retrieve all coins in a given list/table.
+     *
+     * @param listName the table to query
+     * @return a list of all Coin objects from that table
+     */
     public List<Coin> getAllCoins(String listName) {
         List<Coin> coins = new ArrayList<>();
         String sql = String.format("SELECT * FROM \"%s\"", listName);
@@ -189,7 +209,12 @@ public class Database {
         return coins;
     }
 
-    /** Update an existing coin in a given list/table. */
+    /**
+     * Update an existing coin in a given list/table.
+     *
+     * @param listName the table to update
+     * @param coin     the Coin object with updated fields
+     */
     public void updateCoin(String listName, Coin coin) {
         String sql = String.format("""
             UPDATE "%s" SET
@@ -217,7 +242,12 @@ public class Database {
         }
     }
 
-    /** Delete a coin by its UUID from a specified list/table. */
+    /**
+     * Delete a coin by its UUID from a specified list/table.
+     *
+     * @param listName the table to delete from
+     * @param id       the UUID of the coin as a string
+     */
     public void deleteCoin(String listName, String id) {
         String sql = String.format("DELETE FROM \"%s\" WHERE id = ?", listName);
         try (Connection conn = DriverManager.getConnection(DB_URL);
@@ -230,7 +260,27 @@ public class Database {
     }
 
     /**
-     * 1) Drop the entire table for listName, 2) remove it from the “lists” metadata.
+     * Moves a coin from one list/table to another.
+     * This inserts the coin (with all its attributes and bytes) into `toList`
+     * then deletes it from `fromList`.
+     *
+     * @param fromList the source table name
+     * @param toList the destination table name
+     * @param coin the Coin to move
+     */
+    public void moveCoin(String fromList, String toList, Coin coin) {
+        // Fetch the full coin (including image bytes) from source
+        Coin full = getCoinById(fromList, coin.getId().toString());
+        if (full == null) return;
+        // Insert into destination
+        insertCoin(toList, full, full.getObverseBytes(), full.getInverseBytes());
+        // Delete from source
+        deleteCoin(fromList, coin.getId().toString());
+    }
+
+    /**
+     * 1) Drop the entire table for listName,
+     * 2) Remove it from the “lists” metadata.
      */
     public void deleteList(String listName) {
         // 1) Drop the table itself:
