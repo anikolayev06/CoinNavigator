@@ -30,13 +30,19 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import javafx.scene.Node;
+import javafx.scene.paint.Color;
 
 public class GUI extends Application {
 
+    private VBox tabBar;
+
     private final Controller controller = new Controller();
     private BorderPane rootPane;
-    // private VBox sideBar; // Removed, no longer needed
     private Scene mainScene;
+
+    // The currently selected list (table) name; default to first one
+    private String currentList;
 
     public static void main(String[] args) {
         launch(args);
@@ -45,7 +51,17 @@ public class GUI extends Application {
     @Override
     public void start(Stage primaryStage) {
         rootPane = new BorderPane();
-        // Initialize GUI: directly show the list view as default (no sidebar)
+
+        // On startup, pick the first available list (should at least be “owned”)
+        List<String> allLists = controller.getAllListNames();
+        if (allLists.isEmpty()) {
+            // In case metadata was empty (unlikely), create defaults
+            controller.createList("Owned");
+            controller.createList("Wishlist");
+            allLists = controller.getAllListNames();
+        }
+        currentList = allLists.get(0);
+
         showListPage();
 
         mainScene = new Scene(rootPane, 800, 600);
@@ -54,36 +70,30 @@ public class GUI extends Application {
         primaryStage.show();
     }
 
-    private void showHomePage() {
-        Label welcomeLabel = new Label("Welcome to Coin Collection!");
-        rootPane.setCenter(wrapInVBox(welcomeLabel));
-    }
-
     private void showListPage() {
-        // Fetch all coins initially
-        List<Coin> coinList = controller.listCoins();
+        // 1) Fetch all coins in currentList
+        List<Coin> coinList = controller.listCoins(currentList);
         ObservableList<Coin> data = FXCollections.observableArrayList(coinList);
 
         // --- SEARCH CONTROLS at top ---
         Label attrLabel = new Label("Attribute:");
         ComboBox<String> attrBox = new ComboBox<>();
         attrBox.getItems().addAll(controller.getSearchableAttributes());
-        attrBox.setValue("name"); // default selection
+        attrBox.setValue("name"); // default
 
         Label valueLabel = new Label("Value:");
         TextField valueField = new TextField();
         Button searchBtn = new Button("Search");
 
-        // --- TABLE SETUP BELOW ---
-        TableView<Coin> tableView = new TableView<>(data);
+        // --- TABLE SETUP ---
+        final TableView<Coin> tableView = new TableView<>(data);
         tableView.setPrefWidth(600);
         tableView.setPrefHeight(400);
 
-        // Now add Reset button and its handler, referencing tableView safely
+        // “Reset” button to clear filter
         Button resetBtn = new Button("Reset");
         resetBtn.setOnAction(e -> {
-            // Clear filters and show all coins
-            tableView.setItems(FXCollections.observableArrayList(controller.listCoins()));
+            tableView.setItems(FXCollections.observableArrayList(controller.listCoins(currentList)));
             valueField.clear();
             attrBox.setValue("name");
         });
@@ -92,55 +102,47 @@ public class GUI extends Application {
         searchBar.setPadding(new Insets(10));
         searchBar.getChildren().addAll(attrLabel, attrBox, valueLabel, valueField, searchBtn, resetBtn);
 
+        // Define columns: name, date, grade, thickness, diameter, weight, edge, denomination, composition
         TableColumn<Coin, String> nameCol = new TableColumn<>("Name");
-        nameCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(cellData.getValue().getName()));
+        nameCol.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().getName()));
 
         TableColumn<Coin, String> dateCol = new TableColumn<>("Date");
-        dateCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(String.valueOf(cellData.getValue().getDate())));
+        dateCol.setCellValueFactory(c -> new SimpleStringProperty(String.valueOf(c.getValue().getDate())));
 
         TableColumn<Coin, String> gradeCol = new TableColumn<>("Grade");
-        gradeCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(cellData.getValue().getGrade()));
+        gradeCol.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().getGrade()));
 
         TableColumn<Coin, String> thicknessCol = new TableColumn<>("Thickness");
-        thicknessCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(String.valueOf(cellData.getValue().getThickness())));
+        thicknessCol.setCellValueFactory(c -> new SimpleStringProperty(String.valueOf(c.getValue().getThickness())));
 
         TableColumn<Coin, String> diameterCol = new TableColumn<>("Diameter");
-        diameterCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(String.valueOf(cellData.getValue().getDiameter())));
+        diameterCol.setCellValueFactory(c -> new SimpleStringProperty(String.valueOf(c.getValue().getDiameter())));
 
         TableColumn<Coin, String> weightCol = new TableColumn<>("Weight");
-        weightCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(String.valueOf(cellData.getValue().getWeight())));
+        weightCol.setCellValueFactory(c -> new SimpleStringProperty(String.valueOf(c.getValue().getWeight())));
 
         TableColumn<Coin, String> edgeCol = new TableColumn<>("Edge");
-        edgeCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(cellData.getValue().getEdge()));
+        edgeCol.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().getEdge()));
 
         TableColumn<Coin, String> denomCol = new TableColumn<>("Denomination");
-        denomCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(cellData.getValue().getDenomination()));
+        denomCol.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().getDenomination()));
 
         TableColumn<Coin, String> compositionCol = new TableColumn<>("Composition");
-        compositionCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(cellData.getValue().getComposition()));
+        compositionCol.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().getComposition()));
 
         tableView.getColumns().addAll(
-            nameCol,
-            dateCol,
-            gradeCol,
-            thicknessCol,
-            diameterCol,
-            weightCol,
-            edgeCol,
-            denomCol,
-            compositionCol
+                nameCol,
+                dateCol,
+                gradeCol,
+                thicknessCol,
+                diameterCol,
+                weightCol,
+                edgeCol,
+                denomCol,
+                compositionCol
         );
 
-        // Reuse existing context menu (Edit/Delete) setup:
+        // Context menu: Edit / Delete
         MenuItem editItem = new MenuItem("Edit Coin");
         editItem.setOnAction(e -> {
             Coin selected = tableView.getSelectionModel().getSelectedItem();
@@ -148,6 +150,7 @@ public class GUI extends Application {
                 showEditForCoin(selected);
             }
         });
+
         MenuItem deleteItem = new MenuItem("Delete Coin");
         deleteItem.setOnAction(e -> {
             Coin selected = tableView.getSelectionModel().getSelectedItem();
@@ -159,12 +162,13 @@ public class GUI extends Application {
                         selected.getName() + "\" (ID: " + selected.getId() + ")?");
                 alert.showAndWait().ifPresent(response -> {
                     if (response == ButtonType.OK) {
-                        controller.deleteCoin(selected);
+                        controller.deleteCoin(currentList, selected);
                         data.remove(selected);
                     }
                 });
             }
         });
+
         ContextMenu contextMenu = new ContextMenu(editItem, deleteItem);
 
         tableView.setRowFactory(tv -> {
@@ -177,31 +181,31 @@ public class GUI extends Application {
             });
             row.setOnMouseClicked(e -> {
                 if (e.getClickCount() == 2 && !row.isEmpty()) {
-                    Coin selected = row.getItem();
-
+                    Coin sel = row.getItem();
                     StringBuilder sb = new StringBuilder();
-                    sb.append("ID: ").append(selected.getId()).append("\n");
-                    sb.append("Name: ").append(selected.getName()).append("\n");
-                    sb.append("Date: ").append(selected.getDate()).append("\n");
-                    sb.append("Thickness: ").append(selected.getThickness()).append("\n");
-                    sb.append("Diameter: ").append(selected.getDiameter()).append("\n");
-                    sb.append("Grade: ").append(selected.getGrade()).append("\n");
-                    sb.append("Composition: ").append(selected.getComposition()).append("\n");
-                    sb.append("Denomination: ").append(selected.getDenomination()).append("\n");
-                    sb.append("Edge: ").append(selected.getEdge()).append("\n");
-                    sb.append("Weight: ").append(selected.getWeight());
+                    sb.append("ID: ").append(sel.getId()).append("\n");
+                    sb.append("Name: ").append(sel.getName()).append("\n");
+                    sb.append("Date: ").append(sel.getDate()).append("\n");
+                    sb.append("Thickness: ").append(sel.getThickness()).append("\n");
+                    sb.append("Diameter: ").append(sel.getDiameter()).append("\n");
+                    sb.append("Grade: ").append(sel.getGrade()).append("\n");
+                    sb.append("Composition: ").append(sel.getComposition()).append("\n");
+                    sb.append("Denomination: ").append(sel.getDenomination()).append("\n");
+                    sb.append("Edge: ").append(sel.getEdge()).append("\n");
+                    sb.append("Weight: ").append(sel.getWeight());
 
-                    Alert infoAlert = new Alert(Alert.AlertType.INFORMATION);
-                    infoAlert.setTitle("Coin Details");
-                    infoAlert.setHeaderText("Details for " + selected.getName());
-                    infoAlert.setContentText(sb.toString());
-                    infoAlert.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
-                    infoAlert.showAndWait();
+                    Alert info = new Alert(Alert.AlertType.INFORMATION);
+                    info.setTitle("Coin Details");
+                    info.setHeaderText("Details for " + sel.getName());
+                    info.setContentText(sb.toString());
+                    info.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
+                    info.showAndWait();
                 }
             });
             return row;
         });
 
+        // Backspace key → prompt delete
         tableView.setOnKeyPressed(event -> {
             if (event.getCode() == KeyCode.BACK_SPACE) {
                 Coin selected = tableView.getSelectionModel().getSelectedItem();
@@ -213,7 +217,7 @@ public class GUI extends Application {
                             selected.getName() + "\" (ID: " + selected.getId() + ")?");
                     alert.showAndWait().ifPresent(response -> {
                         if (response == ButtonType.OK) {
-                            controller.deleteCoin(selected);
+                            controller.deleteCoin(currentList, selected);
                             tableView.getItems().remove(selected);
                         }
                     });
@@ -221,33 +225,139 @@ public class GUI extends Application {
             }
         });
 
-        // Wire the Search button to filter the table data in-place:
+        // Search button: filter in‐place
         searchBtn.setOnAction(e -> {
             String attr = attrBox.getValue();
-            String value = valueField.getText().trim();
-            if (attr == null || value.isEmpty()) {
-                // If no search criteria, show all coins
-                tableView.setItems(FXCollections.observableArrayList(controller.listCoins()));
+            String val = valueField.getText().trim();
+            if (attr == null || val.isEmpty()) {
+                tableView.setItems(FXCollections.observableArrayList(controller.listCoins(currentList)));
             } else {
-                List<Coin> matches = controller.searchCoins(attr, value);
+                List<Coin> matches = controller.searchCoins(currentList, attr, val);
                 tableView.setItems(FXCollections.observableArrayList(matches));
             }
         });
 
-        // Combine searchBar above the tableView in a VBox:
-        VBox combined = new VBox(10);
-        combined.setPadding(new Insets(10));
-        combined.getChildren().addAll(searchBar, tableView);
-        // Add Coin button below table
+        // “Add Coin” button below the table
         Button addCoinBelowBtn = new Button("Add Coin");
         addCoinBelowBtn.setOnAction(e -> showAddPage());
-        combined.getChildren().add(addCoinBelowBtn);
 
-        rootPane.setCenter(combined);
+        // “Delete Database” button next to Add Coin
+        Button deleteListBtn = new Button("Delete Database");
+        // Message label for deletion feedback
+        Label deleteMsg = new Label();
+        deleteMsg.setTextFill(Color.RED);
+
+        VBox combined = new VBox(10);
+        combined.setPadding(new Insets(10));
+        combined.getChildren().addAll(searchBar, tableView, addCoinBelowBtn, deleteListBtn, deleteMsg);
+
+        // --- TAB BAR on the left for switching among lists ---
+        tabBar = new VBox(10);
+        tabBar.setPadding(new Insets(10));
+
+        // 1) Generate a ToggleButton for every existing list
+        ToggleGroup tg = new ToggleGroup();
+        for (String listName : controller.getAllListNames()) {
+            ToggleButton tb = new ToggleButton(listName);
+            tb.setToggleGroup(tg);
+            if (listName.equals(currentList)) {
+                tb.setSelected(true);
+                tb.setStyle("-fx-background-color: lightgray;");
+            }
+            tb.setOnAction(evt -> {
+                currentList = listName;
+                // reset styling on all buttons
+                for (javafx.scene.Node node : tabBar.getChildren()) {
+                    if (node instanceof ToggleButton tbn) {
+                        tbn.setStyle(null);
+                    }
+                }
+                tb.setStyle("-fx-background-color: lightgray;");
+                reloadTable(tableView);
+            });
+            tabBar.getChildren().add(tb);
+        }
+
+        // 2) The “+” button to create a brand‐new list
+        ToggleButton addBtn = new ToggleButton("+");
+        addBtn.setToggleGroup(tg);
+        addBtn.setOnAction(e -> {
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.setTitle("New List");
+            dialog.setHeaderText("Create a new list");
+            dialog.setContentText("List name:");
+            dialog.showAndWait().ifPresent(name -> {
+                if (name == null || name.trim().isEmpty()) return;
+                // 2a) Persist the new list
+                controller.createList(name);
+                // 2b) Create a ToggleButton for it
+                ToggleButton newTb = new ToggleButton(name);
+                newTb.setToggleGroup(tg);
+                newTb.setOnAction(evt2 -> {
+                    currentList = name;
+                    for (javafx.scene.Node node : tabBar.getChildren()) {
+                        if (node instanceof ToggleButton tbn) {
+                            tbn.setStyle(null);
+                        }
+                    }
+                    newTb.setStyle("-fx-background-color: lightgray;");
+                    reloadTable(tableView);
+                });
+                // 2c) Insert it just before the “+” button
+                tabBar.getChildren().add(tabBar.getChildren().size() - 1, newTb);
+                // select it
+                for (javafx.scene.Node node : tabBar.getChildren()) {
+                    if (node instanceof ToggleButton tbn) {
+                        tbn.setStyle(null);
+                    }
+                }
+                newTb.setStyle("-fx-background-color: lightgray;");
+                currentList = name;
+                reloadTable(tableView);
+            });
+        });
+        tabBar.getChildren().add(addBtn);
+
+        // Now that tabBar is initialized, set up deleteListBtn's handler
+        deleteListBtn.setOnAction(ev -> {
+            if ("owned".equals(currentList) || "wishlist".equals(currentList)) {
+                deleteMsg.setText("Cannot delete Owned or Wishlist");
+            } else {
+                boolean success = controller.deleteList(currentList);
+                if (!success) {
+                    deleteMsg.setText("Cannot delete Owned or Wishlist");
+                } else {
+                    deleteMsg.setText("");
+                    // Remove toggle button from tabBar
+                    for (Node node : tabBar.getChildren()) {
+                        if (node instanceof ToggleButton tb && tb.getText().equals(currentList)) {
+                            tabBar.getChildren().remove(node);
+                            break;
+                        }
+                    }
+                    // Select first available list (skip the "+" button)
+                    for (Node node : tabBar.getChildren()) {
+                        if (node instanceof ToggleButton tb && !"+".equals(tb.getText())) {
+                            currentList = tb.getText();
+                            tb.setSelected(true);
+                            tb.setStyle("-fx-background-color: lightgray;");
+                            break;
+                        }
+                    }
+                    reloadTable(tableView);
+                }
+            }
+        });
+
+        // 3) Assemble final layout
+        BorderPane listPane = new BorderPane();
+        listPane.setLeft(tabBar);
+        listPane.setCenter(combined);
+        rootPane.setCenter(listPane);
     }
 
     private void showAddPage() {
-        // Labels & fields for Name, Date, Grade
+        // Build exactly the same “Add Coin” form as before, but at save time call createCoinInList(...)
         Label nameLabel = new Label("Name:");
         TextField nameField = new TextField();
         nameField.setMaxWidth(150);
@@ -271,9 +381,9 @@ public class GUI extends Application {
 
         CheckBox advancedGradeCheck = new CheckBox("Advanced Grade");
         advancedGradeCheck.setOnAction(e -> {
-            boolean advanced = advancedGradeCheck.isSelected();
-            gradeBox.setVisible(!advanced);
-            customGradeField.setVisible(advanced);
+            boolean adv = advancedGradeCheck.isSelected();
+            gradeBox.setVisible(!adv);
+            customGradeField.setVisible(adv);
         });
 
         HBox topRow = new HBox(10);
@@ -285,7 +395,6 @@ public class GUI extends Application {
                 advancedGradeCheck
         );
 
-        // Additional attributes: thickness, diameter, composition, denomination, edge, weight
         Label thicknessLabel = new Label("Thickness:");
         TextField thicknessField = new TextField();
         thicknessField.setMaxWidth(100);
@@ -319,11 +428,9 @@ public class GUI extends Application {
         additionalGrid.add(thicknessField, 1, 0);
         additionalGrid.add(diameterLabel, 2, 0);
         additionalGrid.add(diameterField, 3, 0);
-
-        // Swapped: edge now at row 1, composition at row 2
+        // Swapped row placements as requested:
         additionalGrid.add(edgeLabel, 0, 1);
         additionalGrid.add(edgeField, 1, 1);
-        // Swapped: weight now at row 1, denomination at row 2
         additionalGrid.add(weightLabel, 2, 1);
         additionalGrid.add(weightField, 3, 1);
         additionalGrid.add(compositionLabel, 0, 2);
@@ -333,10 +440,8 @@ public class GUI extends Application {
 
         Button saveBtn = new Button("Save");
         Button cancelBtn = new Button("Cancel");
-        cancelBtn.setOnAction(e -> {
-            // Return to the list view
-            showListPage();
-        });
+        cancelBtn.setOnAction(e -> showListPage());
+
         VBox errorBox = new VBox(5);
         Label messageLabel = new Label();
 
@@ -344,7 +449,7 @@ public class GUI extends Application {
             errorBox.getChildren().clear();
             messageLabel.setText("");
 
-            // Pack raw inputs into a Map<String,String>
+            // Collect all raw fields into a Map:
             Map<String, String> rawFields = new HashMap<>();
             rawFields.put("name", nameField.getText().trim());
             rawFields.put("date", dateField.getText().trim());
@@ -358,18 +463,14 @@ public class GUI extends Application {
             rawFields.put("edge", edgeField.getText().trim());
             rawFields.put("weight", weightField.getText().trim());
 
-            // Delegate validation & creation to controller
-            Controller.ValidationResult vr = controller.createCoin(rawFields);
+            Controller.ValidationResult vr = controller.createCoinInList(currentList, rawFields);
             if (!vr.isValid()) {
-                // Display each validation error
                 for (Controller.FieldError fe : vr.getErrors()) {
                     errorBox.getChildren().add(makeError(fe.getField(), fe.getExpectedType()));
                 }
             } else {
-                // Creation succeeded
                 messageLabel.setText("Coin added with ID: " + vr.getCreatedId());
-
-                // Clear all inputs
+                // clear inputs
                 nameField.clear();
                 dateField.clear();
                 gradeBox.setValue("N/A");
@@ -388,24 +489,16 @@ public class GUI extends Application {
 
         HBox buttonRow = new HBox(10);
         buttonRow.getChildren().addAll(saveBtn, cancelBtn);
+
         VBox layout = new VBox(10);
         layout.setPadding(new Insets(20));
-        layout.getChildren().clear();
         layout.getChildren().addAll(topRow, additionalGrid, buttonRow, errorBox, messageLabel);
 
         rootPane.setCenter(layout);
     }
 
-
-    // wrapInVBox is still used by showHomePage, so keep it
-    private VBox wrapInVBox(javafx.scene.Node... nodes) {
-        VBox vbox = new VBox(10);
-        vbox.setPadding(new Insets(20));
-        vbox.getChildren().addAll(nodes);
-        return vbox;
-    }
-
     private void showEditForCoin(Coin coin) {
+        // Same as before, but call saveCoin(currentList, coin) on “Save Changes”
         GridPane form = new GridPane();
         form.setHgap(10);
         form.setVgap(10);
@@ -420,7 +513,7 @@ public class GUI extends Application {
         Label diameterLabel = new Label("Diameter:");
         TextField diameterField = new TextField(String.valueOf(coin.getDiameter()));
         Label gradeLabel = new Label("Grade:");
-        TextField gradeField = new TextField(String.valueOf(coin.getGrade()));
+        TextField gradeField = new TextField(coin.getGrade());
         Label compositionLabel = new Label("Composition:");
         TextField compositionField = new TextField(coin.getComposition());
         Label denominationLabel = new Label("Denomination:");
@@ -465,7 +558,7 @@ public class GUI extends Application {
                 coin.setDenomination(denominationField.getText().trim());
                 coin.setEdge(edgeField.getText().trim());
                 coin.setWeight(Double.parseDouble(weightField.getText().trim()));
-                controller.saveCoin(coin);
+                controller.saveCoin(currentList, coin);
                 showListPage();
             } catch (NumberFormatException ex) {
                 Alert err = new Alert(Alert.AlertType.ERROR);
@@ -481,8 +574,8 @@ public class GUI extends Application {
     }
 
     /**
-     * Renders a single-line TextFlow: “Invalid input for {field}; a(n) {type} is required”
-     * with {field} and {type} colored red.
+     * Renders a single error message:
+     * “Invalid input for {field}; a(n) {type} is required” with {field}/{type} in red.
      */
     private TextFlow makeError(String field, String type) {
         return new TextFlow(
@@ -498,5 +591,12 @@ public class GUI extends Application {
         Text t = new Text(content);
         t.setFill(javafx.scene.paint.Color.RED);
         return t;
+    }
+
+    /**
+     * Helper to reload the table whenever we switch currentList.
+     */
+    private void reloadTable(TableView<Coin> tableView) {
+        tableView.setItems(FXCollections.observableArrayList(controller.listCoins(currentList)));
     }
 }

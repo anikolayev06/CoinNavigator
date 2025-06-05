@@ -13,8 +13,7 @@ public class Controller {
     }
 
     /**
-     * A simple data holder for validation errors, pairing a field name
-     * with the type that was expected.
+     * Wraps validation errors.
      */
     public static class FieldError {
         private final String field;
@@ -35,8 +34,7 @@ public class Controller {
     }
 
     /**
-     * The result returned by createCoin(...), which holds any validation errors
-     * and—if validation passed—the UUID of the newly created Coin.
+     * Returned after attempting to create a new coin in a list.
      */
     public static class ValidationResult {
         private final List<FieldError> errors = new ArrayList<>();
@@ -64,18 +62,40 @@ public class Controller {
     }
 
     /**
-     * Creates a new Coin from raw string inputs. Performs the same checks
-     * that previously lived in the GUI (required fields, numeric parsing, etc.).
-     *
-     * @param rawFields a map with keys:
-     *                  "name", "date", "grade", "thickness", "diameter",
-     *                  "composition", "denomination", "edge", "weight"
-     * @return ValidationResult, which contains any FieldError(s). If valid, getCreatedId() is set.
+     * Return all saved list names (e.g. “owned”, “wishlist”, plus any custom ones).
      */
-    public ValidationResult createCoin(Map<String, String> rawFields) {
+    public List<String> getAllListNames() {
+        return db.getAllListNames();
+    }
+
+    /**
+     * Deletes a list with the given name unless it is a protected list ("owned" or "wishlist").
+     *
+     * @param listName the name of the list to delete
+     * @return false if the list is "owned" or "wishlist" (case-insensitive), true if deleted
+     */
+    public boolean deleteList(String listName) {
+        if (listName == null) return false;
+        if (listName.equalsIgnoreCase("owned") || listName.equalsIgnoreCase("wishlist")) {
+            return false;
+        }
+        db.deleteList(listName);
+        return true;
+    }
+
+    /**
+     * Called when the user clicks “+” to make a brand‐new list. Persists it to metadata.
+     */
+    public void createList(String listName) {
+        db.createList(listName);
+    }
+
+    /**
+     * Creates a new Coin in the specified list/table (validates inputs).
+     */
+    public ValidationResult createCoinInList(String listName, Map<String, String> rawFields) {
         ValidationResult result = new ValidationResult();
 
-        // Pull each raw string (may be empty)
         String name        = rawFields.getOrDefault("name", "").trim();
         String dateText    = rawFields.getOrDefault("date", "").trim();
         String gradeText   = rawFields.getOrDefault("grade", "").trim();
@@ -86,12 +106,11 @@ public class Controller {
         String edge            = rawFields.getOrDefault("edge", "").trim();
         String weightText      = rawFields.getOrDefault("weight", "").trim();
 
-        // 1) Required: name, date, grade (if any one is empty, we flag a combined error)
+        // 1) Required: name, date, grade
         if (name.isEmpty() || dateText.isEmpty() || gradeText.isEmpty()) {
             result.addError("name, date, or grade", "required");
         }
 
-        // 2) Validate date only if non-empty
         int dateVal = 0;
         if (!dateText.isEmpty()) {
             try {
@@ -101,7 +120,6 @@ public class Controller {
             }
         }
 
-        // 3) Validate thickness if provided
         double thicknessVal = 0.0;
         if (!thicknessText.isEmpty()) {
             try {
@@ -111,7 +129,6 @@ public class Controller {
             }
         }
 
-        // 4) Validate diameter if provided
         double diameterVal = 0.0;
         if (!diameterText.isEmpty()) {
             try {
@@ -121,7 +138,6 @@ public class Controller {
             }
         }
 
-        // 5) Validate weight if provided
         double weightVal = 0.0;
         if (!weightText.isEmpty()) {
             try {
@@ -131,14 +147,11 @@ public class Controller {
             }
         }
 
-        // Composition, denomination, and edge: treated as free-form strings. No parsing errors.
-
-        // If there were any errors, return them now:
         if (!result.isValid()) {
             return result;
         }
 
-        // 6) All validation passed → construct and persist the new Coin
+        // Build Coin object, then persist into the chosen list
         Coin coin = new Coin();
         coin.setName(name);
         coin.setDate(dateVal);
@@ -150,56 +163,53 @@ public class Controller {
         coin.setEdge(edge);
         coin.setWeight(weightVal);
 
-        // Note: Database.insertCoin(...) signature was changed to accept (Coin, obverseBytes, inverseBytes)
-        // In this context we pass null for the image bytes.
-        db.insertCoin(coin, null, null);
-
+        db.insertCoin(listName, coin, null, null);
         result.setCreatedId(coin.getId());
         return result;
     }
 
     /**
-     * Retrieve all coins from the database.
+     * Returns all coins in the given list.
      */
-    public List<Coin> listCoins() {
-        return db.getAllCoins();
+    public List<Coin> listCoins(String listName) {
+        return db.getAllCoins(listName);
     }
 
     /**
-     * Search coins by attribute → returns matching list.
+     * Search within a given list by attribute/value (partial match for name).
      */
-    public List<Coin> searchCoins(String attr, String value) {
-        List<Coin> all = db.getAllCoins();
+    public List<Coin> searchCoins(String listName, String attr, String value) {
+        List<Coin> all = db.getAllCoins(listName);
         return all.stream()
                 .filter(c -> attributeMatches(c, attr, value))
                 .collect(Collectors.toList());
     }
 
     /**
-     * Persist any edits made to an existing coin.
+     * Persist edits to an existing Coin in the given list.
      */
-    public boolean saveCoin(Coin coin) {
-        db.updateCoin(coin);
+    public boolean saveCoin(String listName, Coin coin) {
+        db.updateCoin(listName, coin);
         return true;
     }
 
     /**
-     * Remove a coin from the database.
+     * Delete a Coin from the given list.
      */
-    public boolean deleteCoin(Coin coin) {
-        db.deleteCoin(coin.getId().toString());
+    public boolean deleteCoin(String listName, Coin coin) {
+        db.deleteCoin(listName, coin.getId().toString());
         return true;
     }
 
     /**
-     * Look up a coin by its UUID string.
+     * Look up a Coin by its UUID in the given list.
      */
-    public Coin getCoinById(String id) {
-        return db.getCoinById(id);
+    public Coin getCoinById(String listName, String id) {
+        return db.getCoinById(listName, id);
     }
 
     /**
-     * List of valid searchable attributes (used by the GUI’s ComboBox).
+     * Returns the list of searchable attributes (used by GUI).
      */
     public List<String> getSearchableAttributes() {
         return List.of(
@@ -209,8 +219,7 @@ public class Controller {
     }
 
     /**
-     * Utility that matches a single coin’s field against the given value.
-     * Used by searchCoins(...) above.
+     * Helper: checks a Coin’s field against the given value.
      */
     private boolean attributeMatches(Coin c, String attr, String value) {
         try {
