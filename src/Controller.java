@@ -4,16 +4,17 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Controller for CoinNavigator.
+ *  – Manages errorBox (for GUI to display errors),
+ *  – Delegates to Database for CRUD on multiple “lists.”
+ */
 public class Controller {
 
     private final Database db;
 
-    public Controller() {
-        this.db = new Database();
-    }
-
     /**
-     * Wraps validation errors.
+     * A simple container of validation errors (field + expected type).
      */
     public static class FieldError {
         private final String field;
@@ -34,7 +35,7 @@ public class Controller {
     }
 
     /**
-     * Returned after attempting to create a new coin in a list.
+     * Holds validation errors (zero or more). If valid, createdId is set.
      */
     public static class ValidationResult {
         private final List<FieldError> errors = new ArrayList<>();
@@ -61,22 +62,55 @@ public class Controller {
         }
     }
 
+    // ——— “Error Box” storage —————————————————————————————————————
+
     /**
-     * Return all saved list names (e.g. “owned”, “wishlist”, plus any custom ones).
+     * This List holds plain‐text error messages (one or more).
+     * Whenever a controller method fails (e.g. validation error or trying to delete a protected list),
+     * we push one or more strings here. GUI will render them in red at the top.
+     */
+    private final List<String> errorBox = new ArrayList<>();
+
+    /**
+     * Return all current error messages (as plain text). GUI reads this and displays them.
+     */
+    public List<String> getErrorBox() {
+        return errorBox;
+    }
+
+    /**
+     * Clear any stored error messages. GUI should call this before invoking an action.
+     */
+    public void clearErrorBox() {
+        errorBox.clear();
+    }
+
+    // ——— end “Error Box” storage ————————————————————————————————————
+
+    public Controller() {
+        this.db = new Database();
+    }
+
+    /**
+     * Return all saved list names (e.g. “Owned”, “Wishlist”, plus any custom ones).
      */
     public List<String> getAllListNames() {
         return db.getAllListNames();
     }
 
     /**
-     * Deletes a list with the given name unless it is a protected list ("owned" or "wishlist").
+     * Deletes a list with the given name unless it is a protected list ("Owned" or "Wishlist").
      *
      * @param listName the name of the list to delete
-     * @return false if the list is "owned" or "wishlist" (case-insensitive), true if deleted
+     * @return false if the list is "Owned" or "Wishlist" (case-insensitive), true if deleted
      */
     public boolean deleteList(String listName) {
-        if (listName == null) return false;
-        if (listName.equalsIgnoreCase("owned") || listName.equalsIgnoreCase("wishlist")) {
+        if (listName == null) {
+            return false;
+        }
+        if (listName.equalsIgnoreCase("Owned") || listName.equalsIgnoreCase("Wishlist")) {
+            // Protected: push error into errorBox
+            errorBox.add("Cannot delete Owned or Wishlist");
             return false;
         }
         db.deleteList(listName);
@@ -92,13 +126,22 @@ public class Controller {
 
     /**
      * Creates a new Coin in the specified list/table (validates inputs).
+     * If validation fails, errorBox is populated with one or more messages.
+     *
+     * @param listName  the list/table to insert into
+     * @param rawFields a map with keys: "name", "date", "grade", "thickness", "diameter",
+     *                  "composition", "denomination", "edge", "weight"
+     * @return ValidationResult, which contains any FieldError(s). If valid, createdId is set.
      */
     public ValidationResult createCoinInList(String listName, Map<String, String> rawFields) {
+        // Always clear the errorBox before validating
+        clearErrorBox();
+
         ValidationResult result = new ValidationResult();
 
-        String name        = rawFields.getOrDefault("name", "").trim();
-        String dateText    = rawFields.getOrDefault("date", "").trim();
-        String gradeText   = rawFields.getOrDefault("grade", "").trim();
+        String name            = rawFields.getOrDefault("name", "").trim();
+        String dateText        = rawFields.getOrDefault("date", "").trim();
+        String gradeText       = rawFields.getOrDefault("grade", "").trim();
         String thicknessText   = rawFields.getOrDefault("thickness", "").trim();
         String diameterText    = rawFields.getOrDefault("diameter", "").trim();
         String composition     = rawFields.getOrDefault("composition", "").trim();
@@ -109,49 +152,59 @@ public class Controller {
         // 1) Required: name, date, grade
         if (name.isEmpty() || dateText.isEmpty() || gradeText.isEmpty()) {
             result.addError("name, date, or grade", "required");
+            errorBox.add("Invalid input for name, date, or grade; all are required");
         }
 
+        // 2) Validate date only if provided
         int dateVal = 0;
         if (!dateText.isEmpty()) {
             try {
                 dateVal = Integer.parseInt(dateText);
             } catch (NumberFormatException e) {
                 result.addError("date", "Integer");
+                errorBox.add("Invalid input for date; a(n) Integer is required");
             }
         }
 
+        // 3) Validate thickness if provided
         double thicknessVal = 0.0;
         if (!thicknessText.isEmpty()) {
             try {
                 thicknessVal = Double.parseDouble(thicknessText);
             } catch (NumberFormatException e) {
                 result.addError("thickness", "Double");
+                errorBox.add("Invalid input for thickness; a(n) Double is required");
             }
         }
 
+        // 4) Validate diameter if provided
         double diameterVal = 0.0;
         if (!diameterText.isEmpty()) {
             try {
                 diameterVal = Double.parseDouble(diameterText);
             } catch (NumberFormatException e) {
                 result.addError("diameter", "Double");
+                errorBox.add("Invalid input for diameter; a(n) Double is required");
             }
         }
 
+        // 5) Validate weight if provided
         double weightVal = 0.0;
         if (!weightText.isEmpty()) {
             try {
                 weightVal = Double.parseDouble(weightText);
             } catch (NumberFormatException e) {
                 result.addError("weight", "Double");
+                errorBox.add("Invalid input for weight; a(n) Double is required");
             }
         }
 
+        // If any validation errors, return immediately
         if (!result.isValid()) {
             return result;
         }
 
-        // Build Coin object, then persist into the chosen list
+        // 6) All validation passed → build Coin object, then insert into the chosen list
         Coin coin = new Coin();
         coin.setName(name);
         coin.setDate(dateVal);
@@ -189,6 +242,7 @@ public class Controller {
      * Persist edits to an existing Coin in the given list.
      */
     public boolean saveCoin(String listName, Coin coin) {
+        clearErrorBox();
         db.updateCoin(listName, coin);
         return true;
     }
@@ -197,6 +251,7 @@ public class Controller {
      * Delete a Coin from the given list.
      */
     public boolean deleteCoin(String listName, Coin coin) {
+        clearErrorBox();
         db.deleteCoin(listName, coin.getId().toString());
         return true;
     }
